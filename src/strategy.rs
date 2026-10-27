@@ -2,8 +2,8 @@ use rand::Rng;
 
 use crate::game::{Game, Player, STARTING_COINS};
 
-/// The original randomized `new_strat` policy, with every bid clamped to a
-/// legal amount. The RNG is injected so matches and tests can be reproduced.
+/// The original randomized `new_strat` policy, with legal bids and a defensive
+/// fallback at the losing edge. The RNG is injected for reproducible tests.
 pub fn choose_bet(game: &Game, rng: &mut impl Rng) -> u16 {
     if game.outcome().is_some() {
         return 0;
@@ -65,7 +65,9 @@ fn base_bet(bot: i32, opponent: i32, position: i8, rng: &mut impl Rng) -> i32 {
         },
         -2 => match rng.random_range(0..=10) {
             0..=1 if bot > opponent => opponent + 1,
-            0..=6 => bot.min(rng.random_range(delta..=delta + 5)),
+            // A nonpositive delta can produce negative bids that become zero
+            // after clamping. Use the defensive half-wallet range below instead.
+            0..=6 if delta > 0 => bot.min(rng.random_range(delta..=delta + 5)),
             10 => bot.min(1),
             _ => rng.random_range((bot + 1) / 2..=bot),
         },
@@ -106,6 +108,39 @@ mod tests {
         let mut game = Game::default();
         game.play_round([64, 0]).unwrap();
         assert_eq!(choose_bet(&game, &mut StdRng::seed_from_u64(1)), 1);
+    }
+
+    #[test]
+    fn screenshot_position_defends_with_positive_affordable_bids() {
+        let mut game = Game::default();
+        for bets in [[0, 56], [1, 0], [1, 0], [48, 0]] {
+            game.play_round(bets).unwrap();
+        }
+        assert_eq!(game.position(), -2);
+        assert_eq!(game.coins(Player::One), 14);
+        assert_eq!(game.coins(Player::Two), 8);
+
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..1_000 {
+            assert!((1..=8).contains(&choose_bet(&game, &mut rng)));
+        }
+    }
+
+    #[test]
+    fn losing_edge_never_bids_zero_unless_the_bot_wallet_is_empty() {
+        let mut rng = StdRng::seed_from_u64(5);
+        for bot in 0..=64 {
+            for opponent in 0..=64 {
+                for _ in 0..32 {
+                    let bet = bounded_bet(bot, opponent, -2, &mut rng);
+                    if bot == 0 {
+                        assert_eq!(bet, 0);
+                    } else {
+                        assert!((1..=bot).contains(&bet));
+                    }
+                }
+            }
+        }
     }
 
     #[test]
