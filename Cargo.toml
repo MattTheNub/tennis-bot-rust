@@ -1,0 +1,27 @@
+[package]
+name = "tennis-bot"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A Discord bot for simultaneous-bid coin tennis"
+publish = false
+
+[dependencies]
+anyhow = "1"
+poise = "0.6.2"
+rand = "0.9"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+
