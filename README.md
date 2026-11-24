@@ -33,10 +33,14 @@ Slash commands register globally at startup and may take time to appear.
 | `!stop_game` | `/stop_game` | Stop your current game. |
 | `!tennis_help` or `!help` | `/tennis_help` | Show commands and rules. |
 
-Only the challenged player can accept with ✅ or decline with ❌. Challenges
+Only the challenged player can accept with `pecheck` or decline with `pex`. Challenges
 expire after five minutes and are consumed once answered. Starting a game cancels
 other pending challenges involving its human participants. Each person can play
 one game at a time; the bot can play multiple independent games.
+
+The bot uses the custom emojis `<:pecheck:1486474300117749862>` and
+`<:pex:1489436432077426889>`. Give it access to those emojis and **Use External
+Emojis** permission when playing outside their source server.
 
 Both `!play` and `/play` work in multiplayer. Slash bets receive a private
 acknowledgment; prefix commands are public Discord messages.

@@ -15,6 +15,27 @@ use tennis_bot::{
 pub type Error = anyhow::Error;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
+const ACCEPT_EMOJI_ID: serenity::EmojiId = serenity::EmojiId::new(1486474300117749862);
+const DECLINE_EMOJI_ID: serenity::EmojiId = serenity::EmojiId::new(1489436432077426889);
+
+fn challenge_reactions() -> [serenity::ReactionType; 2] {
+    [(ACCEPT_EMOJI_ID, "pecheck"), (DECLINE_EMOJI_ID, "pex")].map(|(id, name)| {
+        serenity::ReactionType::Custom {
+            animated: false,
+            id,
+            name: Some(name.into()),
+        }
+    })
+}
+
+fn challenge_decision(emoji: &serenity::ReactionType) -> Option<bool> {
+    match emoji {
+        serenity::ReactionType::Custom { id, .. } if *id == ACCEPT_EMOJI_ID => Some(true),
+        serenity::ReactionType::Custom { id, .. } if *id == DECLINE_EMOJI_ID => Some(false),
+        _ => None,
+    }
+}
+
 #[derive(Default)]
 pub struct Data {
     lobby: Mutex<Lobby>,
@@ -209,14 +230,11 @@ async fn challenge(
             .await?;
         return Ok(());
     }
-    for emoji in ["✅", "❌"] {
-        if let Err(error) = message
-            .react(ctx, serenity::ReactionType::Unicode(emoji.into()))
-            .await
-        {
+    for emoji in challenge_reactions() {
+        if let Err(error) = message.react(ctx, emoji).await {
             let cancelled = ctx.data().lobby.lock().await.cancel_challenge(id);
             if cancelled {
-                reply.edit(ctx, poise::CreateReply::default().content("Challenge cancelled: I couldn't add reactions. Check my Add Reactions and Read Message History permissions.")).await?;
+                reply.edit(ctx, poise::CreateReply::default().content("Challenge cancelled: I couldn't add reactions. Check my access to the pecheck and pex emojis and my Add Reactions, Read Message History, and Use External Emojis permissions.")).await?;
             }
             return Err(error.into());
         }
@@ -331,10 +349,8 @@ async fn on_event(
     let Some(user) = reaction.user_id else {
         return Ok(());
     };
-    let accept = match &reaction.emoji {
-        serenity::ReactionType::Unicode(emoji) if emoji == "✅" => true,
-        serenity::ReactionType::Unicode(emoji) if emoji == "❌" => false,
-        _ => return Ok(()),
+    let Some(accept) = challenge_decision(&reaction.emoji) else {
+        return Ok(());
     };
     let response = data.lobby.lock().await.respond_to_challenge(
         ChallengeId(reaction.message_id.get()),
@@ -395,6 +411,56 @@ mod tests {
     use std::future::ready;
 
     use super::*;
+
+    #[test]
+    fn challenge_custom_reactions_accept_and_decline_by_id() {
+        let [accept, decline] = challenge_reactions();
+        assert_eq!(challenge_decision(&accept), Some(true));
+        assert_eq!(challenge_decision(&decline), Some(false));
+
+        for (id, expected) in [(1486474300117749862, true), (1489436432077426889, false)] {
+            for name in [None, Some("renamed".into())] {
+                let emoji = serenity::ReactionType::Custom {
+                    animated: false,
+                    id: serenity::EmojiId::new(id),
+                    name,
+                };
+                let mut lobby = Lobby::default();
+                let now = Instant::now();
+                lobby
+                    .add_challenge(
+                        ChallengeId(1),
+                        [PlayerId(1), PlayerId(2)],
+                        ChannelId(1),
+                        now,
+                    )
+                    .unwrap();
+                let decision = challenge_decision(&emoji).unwrap();
+                assert_eq!(decision, expected);
+                let response = lobby
+                    .respond_to_challenge(ChallengeId(1), PlayerId(2), decision, now)
+                    .unwrap();
+                assert!(matches!(response, Some(ChallengeResponse::Accepted(_))) == expected);
+                assert!(matches!(response, Some(ChallengeResponse::Declined(_))) != expected);
+            }
+        }
+    }
+
+    #[test]
+    fn challenge_ignores_other_emojis_even_when_names_match() {
+        let unrelated = serenity::ReactionType::Custom {
+            animated: false,
+            id: serenity::EmojiId::new(1),
+            name: Some("pecheck".into()),
+        };
+        for emoji in [
+            unrelated,
+            serenity::ReactionType::Unicode("✅".into()),
+            serenity::ReactionType::Unicode("❌".into()),
+        ] {
+            assert_eq!(challenge_decision(&emoji), None);
+        }
+    }
 
     #[tokio::test]
     async fn bot_round_sends_spending_and_board_without_an_acknowledgment() {
